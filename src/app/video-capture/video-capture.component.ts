@@ -1,6 +1,8 @@
 import { AfterViewInit, Component } from "@angular/core";
 import { Router } from "@angular/router";
 import * as posenet from "@tensorflow-models/posenet";
+import * as tf from "@tensorflow/tfjs";
+import { loadLayersModel } from "@tensorflow/tfjs";
 import dat from "dat.gui";
 import * as html2canvas from "html2canvas";
 import Stats from "stats.js";
@@ -92,18 +94,27 @@ export class VideoCaptureComponent implements AfterViewInit {
       }
     });
     video.srcObject = this.stream;
-    // video.src = "assets/videos/vid1-00-04.mp4";
+    //video.src = "assets/videos/vid1-00-04.mp4";
 
     const options = { mimeType: "video/webm" };
     const recordedChunks = [];
+    var tfsFromPixels = tf.zeros([0]);
+    var index = 0;
     let stopped = false;
-
+ 
     this.mediaRecorder = new MediaRecorder(this.stream, options);
 
     this.mediaRecorder.addEventListener("dataavailable", e => {
       console.log("e: ", e);
       if (e.data.size > 0) {
-        recordedChunks.push(e.data);
+        const vidURL = URL.createObjectURL(e.data);
+        const vid = document.createElement("video");
+        vid.src = vidURL;
+        vid.height = 1920;
+        vid.width = 1080;
+   
+        const tfFromPixels = this.preprocess(vid);
+        tfsFromPixels = tf.concat([tfsFromPixels, tfFromPixels.expandDims(3)], 0);
       }
 
       if (this.shouldStop === true && stopped === false) {
@@ -117,32 +128,20 @@ export class VideoCaptureComponent implements AfterViewInit {
 
       console.log("FINNNNNN", new Blob(recordedChunks));
 
-      // const blob = new Blob(recordedChunks);
-      // // do something with this blob
-      // const vidURL = URL.createObjectURL(blob);
-      // const vid = document.createElement("video");
-      // vid.src = vidURL;
-      // vid.height = 1920;
-      // vid.width = 1080;
+      const blob = new Blob(recordedChunks);
+      // do something with this blob
+     
+      const MODEL_URL = "assets/model/model.json";
 
-      // console.log("recordedChunks: ", recordedChunks);
+      const model = await loadLayersModel(MODEL_URL);
 
-      // const MODEL_URL = "assets/model/model.json";
+      //const tensorArray = tf.tensor(recordedChunks);
 
-      // const model = await loadLayersModel(MODEL_URL);
+      //console.log('tfFromPixels bef: ', tensorArray );
+      //console.log('tfFromPixels[0]: ', tensorArray[0].shape);
 
-      // const tensorArray = tf.tensor(recordedChunks);
-
-      // const tfFromPixels = tf.browser.fromPixels(vid);
-      // tfFromPixels.shape.splice(0,3);
-      // tfFromPixels.shape.push(null);
-      // tfFromPixels.shape.push(240);
-      // tfFromPixels.shape.push(240);
-      // tfFromPixels.shape.push(23);
-      // console.log('tfFromPixels: ', JSON.stringify(tfFromPixels));
-
-      // const asdf = model.predict(tfFromPixels, { verbose: true });
-      // console.log("resultExect: ", asdf);
+      const asdf = model.predict(tfsFromPixels, { verbose: true });
+      console.log("resultExect: ", asdf);
     });
 
     console.log("mediaRecorder: ", this.mediaRecorder);
@@ -161,6 +160,24 @@ export class VideoCaptureComponent implements AfterViewInit {
     video.play();
 
     return video;
+  }
+
+  preprocess(imgData)
+  {
+    //convert the image data to a tensor
+    let tensor = tf.browser.fromPixels(imgData)
+    console.log("Tensor length:" + tensor.shape)
+    //resize to 28 x 28
+    const resized = tf.image.resizeBilinear(tensor, [240, 240]).toFloat()
+    console.log("RESIZED!!!!" + resized.shape)
+    // Normalize the image
+    const offset = tf.scalar(255.0);
+    var normalized = tf.scalar(1.0).sub(resized.div(offset));
+    normalized = tf.transpose(normalized, [2,0,1])
+
+    console.log("NORMA!!!!" + normalized.shape)
+
+    return normalized;
   }
 
   /**
@@ -359,7 +376,7 @@ export class VideoCaptureComponent implements AfterViewInit {
 
           this.mediaRecorder.stop();
           setTimeout(() => {
-            this.router.navigateByUrl("spinner");
+            // this.router.navigateByUrl("spinner");
           }, 1500);
         });
       }
